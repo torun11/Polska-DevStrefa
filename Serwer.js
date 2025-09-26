@@ -1,39 +1,3 @@
-// server.js
-// Prosty backend zapisujący tickety jako pliki .json (katalog /tickets)
-// Uruchom: npm init -y && npm i express cors morgan uuid
-// Potem: node server.js
-
-const express = require('express');
-const fs = require('fs').promises;
-const fsSync = require('fs');
-const path = require('path');
-const cors = require('cors');
-const morgan = require('morgan');
-const { v4: uuidv4 } = require('uuid');
-
-const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(morgan('dev'));
-
-const ticketsDir = path.join(__dirname, 'tickets');
-
-// Upewnij się, że katalog istnieje (synchronically - na start)
-if (!fsSync.existsSync(ticketsDir)) {
-  fsSync.mkdirSync(ticketsDir, { recursive: true });
-}
-
-const ticketFilePath = (id) => path.join(ticketsDir, `ticket-${id}.json`);
-
-// Pomocnik: wczytaj ticket (jeśli nie istnieje -> null)
-async function readTicket(id) {
-  const p = ticketFilePath(id);
-  try {
-    const raw = await fs.readFile(p, 'utf8');
-    return JSON.parse(raw);
-  } catch (err) {
-    if (err.code === 'ENOENT') return null;
-    throw err;
   }
 }
 
