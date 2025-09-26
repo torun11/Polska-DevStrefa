@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>System Ticketów</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>System Ticketów</h1>
+
+    <section id="new-ticket">
+      <h2>Nowy Ticket</h2>
+      <input type="text" id="username" placeholder="Twoje imię">
+      <input type="text" id="title" placeholder="Temat ticketu">
+      <textarea id="message" placeholder="Treść wiadomości"></textarea>
+      <button id="createTicket">Utwórz ticket</button>
+    </section>
+
+    <section id="tickets">
+      <h2>Lista Ticketów</h2>
+      <ul id="ticketList"></ul>
+    </section>
+
+    <section id="chat" style="display:none;">
+      <h2>Wiadomości Ticketu: <span id="ticketTitle"></span></h2>
+      <ul id="messages"></ul>
+      <input type="text" id="replySender" placeholder="Twoje imię">
+      <input type="text" id="replyMessage" placeholder="Treść odpowiedzi">
+      <button id="sendMessage">Wyślij</button>
+      <button id="backTickets">Powrót do listy</button>
+    </section>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
