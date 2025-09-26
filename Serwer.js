@@ -1,75 +1,132 @@
-const express = require("express");
-const fs = require("fs");
-const cors = require("cors");
-const bodyParser = require("body-parser");
-const path = require("path");
+// server.js
+// Prosty backend zapisujący tickety jako pliki .json (katalog /tickets)
+// Uruchom: npm init -y && npm i express cors morgan uuid
+// Potem: node server.js
+
+const express = require('express');
+const fs = require('fs').promises;
+const fsSync = require('fs');
+const path = require('path');
+const cors = require('cors');
+const morgan = require('morgan');
+const { v4: uuidv4 } = require('uuid');
 
 const app = express();
 app.use(cors());
-app.use(bodyParser.json());
+app.use(express.json());
+app.use(morgan('dev'));
 
-const ticketsDir = path.join(__dirname, "tickets");
-if (!fs.existsSync(ticketsDir)) {
-  fs.mkdirSync(ticketsDir);
+const ticketsDir = path.join(__dirname, 'tickets');
+
+// Upewnij się, że katalog istnieje (synchronically - na start)
+if (!fsSync.existsSync(ticketsDir)) {
+  fsSync.mkdirSync(ticketsDir, { recursive: true });
 }
 
-// Utwórz nowy ticket (plik)
-app.post("/tickets", (req, res) => {
-  const { username, title, message } = req.body;
-  const ticketId = Date.now(); // unikalne ID na podstawie czasu
-  const ticketPath = path.join(ticketsDir, `ticket-${ticketId}.json`);
+const ticketFilePath = (id) => path.join(ticketsDir, `ticket-${id}.json`);
 
-  const ticketData = {
-    id: ticketId,
-    username,
-    title,
-    messages: [
-      { sender: username, message, created_at: new Date().toISOString() }
-    ]
-  };
-
-  fs.writeFileSync(ticketPath, JSON.stringify(ticketData, null, 2));
-  res.json(ticketData);
-});
-
-// Pobierz listę ticketów
-app.get("/tickets", (req, res) => {
-  const files = fs.readdirSync(ticketsDir);
-  const tickets = files.map(file => {
-    const data = JSON.parse(fs.readFileSync(path.join(ticketsDir, file)));
-    return { id: data.id, username: data.username, title: data.title };
-  });
-  res.json(tickets);
-});
-
-// Pobierz wiadomości z ticketu
-app.get("/tickets/:id", (req, res) => {
-  const ticketPath = path.join(ticketsDir, `ticket-${req.params.id}.json`);
-  if (!fs.existsSync(ticketPath)) {
-    return res.status(404).json({ error: "Ticket nie istnieje" });
+// Pomocnik: wczytaj ticket (jeśli nie istnieje -> null)
+async function readTicket(id) {
+  const p = ticketFilePath(id);
+  try {
+    const raw = await fs.readFile(p, 'utf8');
+    return JSON.parse(raw);
+  } catch (err) {
+    if (err.code === 'ENOENT') return null;
+    throw err;
   }
-  const data = JSON.parse(fs.readFileSync(ticketPath));
-  res.json(data);
+}
+
+// Utwórz nowy ticket (zwraca cały obiekt ticketu)
+app.post('/tickets', async (req, res) => {
+  try {
+    const { username, title, message } = req.body || {};
+    if (!username || !title || !message) {
+      return res.status(400).json({ error: 'Brakuje pola username, title lub message' });
+    }
+
+    const id = uuidv4();
+    const ticket = {
+      id,
+      username,
+      title,
+      created_at: new Date().toISOString(),
+      messages: [
+        { id: uuidv4(), sender: username, message, created_at: new Date().toISOString() }
+      ]
+    };
+
+    await fs.writeFile(ticketFilePath(id), JSON.stringify(ticket, null, 2), 'utf8');
+    return res.status(201).json(ticket);
+  } catch (err) {
+    console.error('POST /tickets error', err);
+    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+  }
+});
+
+// Pobierz listę ticketów (podstawowe informacje)
+app.get('/tickets', async (req, res) => {
+  try {
+    const files = await fs.readdir(ticketsDir);
+    const tickets = await Promise.all(
+      files
+        .filter(f => f.endsWith('.json'))
+        .map(async (f) => {
+          const raw = await fs.readFile(path.join(ticketsDir, f), 'utf8');
+          const obj = JSON.parse(raw);
+          // Zwracamy tylko streszczenie
+          return { id: obj.id, username: obj.username, title: obj.title, created_at: obj.created_at, last_message: obj.messages && obj.messages.length ? obj.messages[obj.messages.length-1] : null };
+        })
+    );
+    return res.json(tickets);
+  } catch (err) {
+    console.error('GET /tickets error', err);
+    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+  }
+});
+
+// Pobierz pełny ticket (wraz z wiadomościami)
+app.get('/tickets/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const ticket = await readTicket(id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket nie znaleziony' });
+    return res.json(ticket);
+  } catch (err) {
+    console.error('GET /tickets/:id error', err);
+    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
+  }
 });
 
 // Dodaj wiadomość do ticketu
-app.post("/tickets/:id/messages", (req, res) => {
-  const ticketPath = path.join(ticketsDir, `ticket-${req.params.id}.json`);
-  if (!fs.existsSync(ticketPath)) {
-    return res.status(404).json({ error: "Ticket nie istnieje" });
+app.post('/tickets/:id/messages', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const { sender, message } = req.body || {};
+    if (!sender || !message) return res.status(400).json({ error: 'Brakuje pola sender lub message' });
+
+    const ticket = await readTicket(id);
+    if (!ticket) return res.status(404).json({ error: 'Ticket nie istnieje' });
+
+    const msg = { id: uuidv4(), sender, message, created_at: new Date().toISOString() };
+    ticket.messages.push(msg);
+
+    await fs.writeFile(ticketFilePath(id), JSON.stringify(ticket, null, 2), 'utf8');
+    return res.json(ticket);
+  } catch (err) {
+    console.error('POST /tickets/:id/messages error', err);
+    return res.status(500).json({ error: 'Wewnętrzny błąd serwera' });
   }
-
-  const { sender, message } = req.body;
-  const data = JSON.parse(fs.readFileSync(ticketPath));
-  data.messages.push({
-    sender,
-    message,
-    created_at: new Date().toISOString()
-  });
-
-  fs.writeFileSync(ticketPath, JSON.stringify(data, null, 2));
-  res.json(data);
 });
 
-const PORT = 4000;
-app.listen(PORT, () => console.log(`✅ Backend działa na http://localhost:${PORT}`));
+// Opcjonalnie: serwuj statyczny frontend z katalogu /public (jeśli umieścisz tam build React)
+const publicDir = path.join(__dirname, 'public');
+if (fsSync.existsSync(publicDir)) {
+  app.use(express.static(publicDir));
+  app.get('*', (req, res) => {
+    res.sendFile(path.join(publicDir, 'index.html'));
+  });
+}
+
+const PORT = process.env.PORT || 4000;
+app.listen(PORT, () => console.log(`✅ Backend działa na http://localhost:${PORT} (port ${PORT})`));
